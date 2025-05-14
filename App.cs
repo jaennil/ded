@@ -173,6 +173,12 @@ public class App
 
         if (ImGui.Begin("Debug Panel"))
         {
+            ImGui.Text($"Screen Width: {Raylib.GetScreenWidth()}");
+            ImGui.Text($"Screen Height: {Raylib.GetScreenHeight()}");
+            ImGui.Text($"Render Width: {Raylib.GetRenderWidth()}");
+            ImGui.Text($"Render Height: {Raylib.GetRenderHeight()}");
+            ImGui.Text($"CurrentMonitorWidth: {Raylib.GetMonitorWidth(Raylib.GetCurrentMonitor())}");
+            ImGui.Text($"CurrentMonitorHeight: {Raylib.GetMonitorHeight(Raylib.GetCurrentMonitor())}");
             ImGui.Text($"Font Character Width: {_fontCharacterWidth}");
             ImGui.Text($"Cursor World Position: {_cursor.WorldCoordinates}");
             ImGui.Text($"Cursor Editor Position: {_cursor.EditorCoordinates}");
