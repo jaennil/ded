@@ -14,7 +14,7 @@ public class App
     private const int FontSize = 32;
     private int _fontSpacing = 1;
     private float _gridSize = 50.0f;
-    private Camera2D _camera;
+    private Camera _camera;
     private List<string> lines = [""];
     private readonly Color _textColor = Color.White;
     private readonly Color _backgroundColor = Color.Black;
@@ -25,25 +25,26 @@ public class App
     private List<Lightning> _bolts = [];
     private List<Particle> _particles = [];
     private List<Explosion> _explosions = [];
+    private List<FireEffect> _fireEffects = [];
+    private List<Confetti> _confetti = [];
     private int _numBolts = 3;
-    private CameraShake _cameraShake = new CameraShake();
     private Cursor _cursor;
     private Vector2 _mousePosition;
-    private 
     private Vector2 _mouseCursorPos;
+    private float _confettiSpeedMultiplier = 200.0f;
+    private float _confettiLifetimeMultiplier = 2.0f;
+    private float _confettiStartLifetime = 2.0f;
+    private float _frameTime;
+    private Vector2 _center;
 
     public App()
     {
         Raylib.InitWindow(ScreenWidth, ScreenHeight, "ded");
         Raylib.SetTargetFPS(144);
 
-        _camera = new Camera2D
-        {
-            Target = Vector2.Zero,
-            Offset = new Vector2(ScreenWidth / 2, ScreenHeight / 2),
-            Rotation = 0,
-            Zoom = 1.0f,
-        };
+        _center = new Vector2(ScreenWidth / 2, ScreenHeight / 2);
+
+        _camera = new Camera(_center);
 
         _font = Raylib.LoadFontEx("FiraCodeNerdFont-Regular.ttf", FontSize, null, 0);
 
@@ -61,11 +62,8 @@ public class App
             HandleInput();
             Draw();
             UpdateEffects();
-            _cameraShake.Update(Raylib.GetFrameTime());
-            _camera.Offset = new Vector2(
-                ScreenWidth / 2 + _cameraShake.CurrentShake.X,
-                ScreenHeight / 2 + _cameraShake.CurrentShake.Y
-            );
+            _frameTime = Raylib.GetFrameTime();
+            _camera.Update(_frameTime);
         }
 
         Cleanup();
@@ -73,16 +71,7 @@ public class App
 
     private void MousePosToCursorPos()
     {
-        _mouseCursorPos = (_mousePosition - new Vector2(ScreenWidth/2, ScreenHeight/2) + _camera.Target) / new Vector2(_fontCharacterWidth, FontSize);
-        if (_mouseCursorPos.X < 0.0f)
-        {
-            _mouseCursorPos.X = 0.0f;
-        }
-
-        if (_mouseCursorPos.Y < 0.0f)
-        {
-            _mouseCursorPos.Y = 0.0f;
-        }
+        _mouseCursorPos = (_mousePosition - _center + _cursor.WorldCoordinates) / new Vector2(_fontCharacterWidth, FontSize);
     }
 
     private void HandleInput()
@@ -93,21 +82,26 @@ public class App
             MousePosToCursorPos();
             var x = (int)_mouseCursorPos.X;
             var y = (int)_mouseCursorPos.Y;
-            if (lines.Count > y)
+            if (lines.Count > y && y >= 0)
             {
-                Console.WriteLine("lines[y].Length "+ lines[y].Length);
-                if (lines[y].Length > x)
+                if (lines[y].Length > x && x >= 0)
                 {
                     lines[y] = lines[y].Remove(x, 1).Insert(x, " ");
+
+                    var target = new Vector2(
+                        x * _fontCharacterWidth + _fontCharacterWidth/2,
+                        y * FontSize + FontSize / 2
+                    );
+                    CreateFireEffect(target, _fireEffects, _random);
+                    _camera.Shake(1.0f, 0.1f);
                 }
             }
         }
-        // lines[(int)_mouseCursorPos.Y].Remove((int)_mouseCursorPos.X, 1);
 
         for (var chr = Raylib.GetCharPressed(); chr > 0; chr = Raylib.GetCharPressed())
         {
             float shakeIntensity = 2.0f + (float)_random.NextDouble() * 2.0f;
-            _cameraShake.ShakeCamera(shakeIntensity, 0.2f);
+            _camera.Shake(shakeIntensity, 0.2f);
             var c = (char)chr;
             lines[(int)_cursor.EditorCoordinates.Y] += c;
             _cursor.Forward();
@@ -138,12 +132,14 @@ public class App
             target.X += _fontCharacterWidth / 2;
             target.Y += FontSize / 2;
             CreateExplosionEffect(target, _explosions, _random);
-            _cameraShake.ShakeCamera(1.5f, 0.15f);
+            _camera.Shake(1.5f, 0.15f);
         }
         else if (Raylib.IsKeyPressed(KeyboardKey.Enter))
         {
             lines.Add("");
+            CreateConfettiEffect(_cursor.WorldCoordinates, _confetti, _random, 100);
             _cursor.Down(0);
+            _camera.Shake(1.5f, 0.2f);
         }
         else if (Raylib.IsKeyPressed(KeyboardKey.F2))
         {
@@ -156,11 +152,84 @@ public class App
     {
         Raylib.BeginDrawing();
         Raylib.ClearBackground(_backgroundColor);
-        Raylib.BeginMode2D(_camera);
+        Raylib.BeginMode2D(_camera.Handle);
         if (_grid) DrawGrid();
         if (_coordinateAxis) DrawCoordinateAxis();
         DrawText();
         _cursor.Draw();
+
+        // Draw confetti
+        foreach (var confetti in _confetti)
+        {
+            Color colorWithAlpha = ColorAlpha(confetti.Color, confetti.Alpha);
+            
+            // Calculate rotated vertices
+            float cos = MathF.Cos(confetti.Angle);
+            float sin = MathF.Sin(confetti.Angle);
+            
+            switch (confetti.Shape)
+            {
+                case 0: // Square
+                    float halfSize = confetti.Size / 2;
+                    
+                    // Calculate rotated corners
+                    Vector2 p1 = new Vector2(
+                        confetti.Position.X + (-halfSize * cos - (-halfSize) * sin),
+                        confetti.Position.Y + (-halfSize * sin + (-halfSize) * cos)
+                    );
+                    Vector2 p2 = new Vector2(
+                        confetti.Position.X + (halfSize * cos - (-halfSize) * sin),
+                        confetti.Position.Y + (halfSize * sin + (-halfSize) * cos)
+                    );
+                    Vector2 p3 = new Vector2(
+                        confetti.Position.X + (halfSize * cos - halfSize * sin),
+                        confetti.Position.Y + (halfSize * sin + halfSize * cos)
+                    );
+                    Vector2 p4 = new Vector2(
+                        confetti.Position.X + (-halfSize * cos - halfSize * sin),
+                        confetti.Position.Y + (-halfSize * sin + halfSize * cos)
+                    );
+                    
+                    // Draw rotated rectangle using two triangles
+                    Raylib.DrawTriangle(p1, p2, p3, colorWithAlpha);
+                    Raylib.DrawTriangle(p1, p3, p4, colorWithAlpha);
+                    break;
+                    
+                case 1: // Circle (no rotation needed)
+                    Raylib.DrawCircleV(confetti.Position, confetti.Size / 2, colorWithAlpha);
+                    break;
+                    
+                case 2: // Triangle
+                    float height = confetti.Size / 2;
+                    float base_half = confetti.Size / 2;
+                    
+                    // Calculate rotated vertices
+                    Vector2 tp1 = new Vector2(
+                        confetti.Position.X + (0 * cos - (-height) * sin),
+                        confetti.Position.Y + (0 * sin + (-height) * cos)
+                    );
+                    Vector2 tp2 = new Vector2(
+                        confetti.Position.X + (-base_half * cos - height * sin),
+                        confetti.Position.Y + (-base_half * sin + height * cos)
+                    );
+                    Vector2 tp3 = new Vector2(
+                        confetti.Position.X + (base_half * cos - height * sin),
+                        confetti.Position.Y + (base_half * sin + height * cos)
+                    );
+                    
+                    Raylib.DrawTriangle(tp1, tp2, tp3, colorWithAlpha);
+                    break;
+            }
+        }
+
+        foreach (var fire in _fireEffects)
+        {
+            foreach (var particle in fire.Particles)
+            {
+                Raylib.DrawCircleV(particle.Position, particle.Radius, ColorAlpha(particle.Color, particle.Alpha));
+            }
+        }
+
         foreach (var explosion in _explosions)
         {
             // Draw outer explosion
@@ -219,10 +288,13 @@ public class App
             ImGui.Text($"Cursor Editor Position: {_cursor.EditorCoordinates}");
             ImGui.Text($"Mouse Cursor Pos: {_mouseCursorPos}");
             ImGui.Text($"Camera Offset: {_camera.Offset}");
-            ImGui.SliderFloat("Camera Zoom", ref _camera.Zoom, 0.1f, 100.0f);
+            // ImGui.SliderFloat("Camera Zoom", ref _camera.Zoom, 0.1f, 100.0f);
             ImGui.Text($"Camera Target: {_camera.Target}");
-            ImGui.SliderFloat("Camera Rotation", ref _camera.Rotation, 0.0f, 360.0f);
+            // ImGui.SliderFloat("Camera Rotation", ref _camera.Rotation, 0.0f, 360.0f);
             ImGui.SliderFloat("Grid Size", ref _gridSize, 0.0f, 500.0f);
+            ImGui.SliderFloat("Confetti Speed Multiplier", ref _confettiSpeedMultiplier, 0.0f, 500.0f);
+            ImGui.SliderFloat("Confetti Lifetimu Multiplier", ref _confettiLifetimeMultiplier, 0.0f, 500.0f);
+            ImGui.SliderFloat("Confetti Start Lifetime", ref _confettiStartLifetime, 0.0f, 500.0f);
             ImGui.SliderInt("Font Spacing", ref _fontSpacing, 0, 100);
             ImGui.SliderInt("Num bolts", ref _numBolts, 0, 100);
             ImGui.Checkbox("Coordinate Axis", ref _coordinateAxis);
@@ -302,6 +374,28 @@ public class App
         public List<Particle> Debris;
     }
 
+    struct FireEffect
+    {
+        public Vector2 Position;
+        public float Lifetime;
+        public float MaxLifetime;
+        public List<Particle> Particles;
+    }
+
+    struct Confetti
+    {
+        public Vector2 Position;
+        public Vector2 Velocity;
+        public Vector2 AngularVelocity; // Rotation speed
+        public float Size;
+        public float Angle;
+        public float Alpha;
+        public Color Color;
+        public float Lifetime;
+        public float MaxLifetime;
+        public int Shape; // 0 = square, 1 = circle, 2 = triangle
+    }
+
     struct Particle
     {
         public Vector2 Position;
@@ -311,6 +405,139 @@ public class App
         public Color Color;
         public float Lifetime;
         public float MaxLifetime;
+    }
+
+    void CreateConfettiEffect(Vector2 position, List<Confetti> confettiList, Random rand, int count = 50)
+    {
+         // Confetti colors - vibrant and varied
+        Color[] confettiColors = new Color[]
+        {
+            new Color(255, 0, 0, 255),     // Red
+            new Color(0, 255, 0, 255),     // Green
+            new Color(0, 0, 255, 255),     // Blue
+            new Color(255, 255, 0, 255),   // Yellow
+            new Color(255, 0, 255, 255),   // Magenta
+            new Color(0, 255, 255, 255),   // Cyan
+            new Color(255, 165, 0, 255),   // Orange
+            new Color(128, 0, 128, 255),   // Purple
+            new Color(255, 192, 203, 255), // Pink
+            new Color(173, 216, 230, 255)  // Light blue
+        };
+
+        for (int i = 0; i < count; i++)
+        {
+            // Random angle and speed for confetti
+            float angle = (float)(rand.NextDouble() * Math.PI * 2);
+            float speed = (float)(rand.NextDouble() * _confettiSpeedMultiplier + 3.0f);
+            
+            // Random size
+            float size = (float)(rand.NextDouble() * 8.0f + 4.0f);
+            
+            // Random rotation and rotational velocity
+            float startingAngle = (float)(rand.NextDouble() * Math.PI * 2);
+            float rotationSpeed = (float)((rand.NextDouble() - 0.5) * 10.0f);
+            
+            // Random lifetime for varied falling duration
+            float lifetime = (float)(rand.NextDouble() * _confettiLifetimeMultiplier + _confettiStartLifetime);
+            
+            // Choose a random color
+            Color color = confettiColors[rand.Next(0, confettiColors.Length)];
+            
+            // Choose a random shape (0 = square, 1 = circle, 2 = triangle)
+            int shape = rand.Next(0, 3);
+            
+            confettiList.Add(new Confetti
+            {
+                Position = position,
+                Velocity = new Vector2(
+                    (float)Math.Cos(angle) * speed,
+                    (float)Math.Sin(angle) * speed
+                ),
+                AngularVelocity = new Vector2(0, 0),
+                Size = size,
+                Angle = startingAngle,
+                Alpha = 1.0f,
+                Color = color,
+                Lifetime = 0,
+                MaxLifetime = lifetime,
+                Shape = shape
+            });
+        }
+    }
+
+    void CreateFireEffect(Vector2 position, List<FireEffect> fireEffects, Random rand)
+    {
+         // Fire colors (red/orange/yellow gradient)
+        Color[] fireColors = new Color[]
+        {
+            new Color(255, 0, 0, 255),     // Red
+            new Color(255, 50, 0, 255),    // Red-orange
+            new Color(255, 100, 0, 255),   // Orange-red
+            new Color(255, 150, 0, 255),   // Orange
+            new Color(255, 200, 0, 255),   // Yellow-orange
+            new Color(255, 255, 0, 255)    // Yellow
+        };
+        
+        // Create fire particles
+        List<Particle> particles = new List<Particle>();
+        int particleCount = rand.Next(20, 35); // Number of fire particles
+        
+        for (int i = 0; i < particleCount; i++)
+        {
+            // Random angle and speed for fire particles, mainly upward
+            float angle = (float)(Math.PI * 0.5f + (rand.NextDouble() - 0.5) * Math.PI * 0.8);
+            float speed = (float)(rand.NextDouble() * 3.0f + 1.5f);
+            
+            // Create particle with randomized properties
+            float particleLifetime = (float)(rand.NextDouble() * 0.7f + 0.3f);
+            
+            // Choose a color for this fire particle
+            Color particleColor = fireColors[rand.Next(0, fireColors.Length)];
+            
+            particles.Add(new Particle
+            {
+                Position = position,
+                Velocity = new Vector2(
+                    (float)Math.Cos(angle) * speed,
+                    (float)Math.Sin(angle) * speed
+                ),
+                Radius = (float)(rand.NextDouble() * 4.0f + 2.0f),
+                Alpha = 0.9f,
+                Color = particleColor,
+                Lifetime = 0,
+                MaxLifetime = particleLifetime
+            });
+        }
+        
+        // Create fire effect
+        fireEffects.Add(new FireEffect
+        {
+            Position = position,
+            Lifetime = 0,
+            MaxLifetime = 1.0f,
+            Particles = particles
+        });
+        
+        // Also add some smoke particles that linger
+        for (int i = 0; i < 8; i++)
+        {
+            float angle = (float)(Math.PI * 0.5f + (rand.NextDouble() - 0.5) * Math.PI * 0.6);
+            float speed = (float)(rand.NextDouble() * 1.5f + 0.7f);
+            
+            _particles.Add(new Particle
+            {
+                Position = position,
+                Velocity = new Vector2(
+                    (float)Math.Cos(angle) * speed,
+                    (float)Math.Sin(angle) * speed
+                ),
+                Radius = (float)(rand.NextDouble() * 3.5f + 2.5f),
+                Alpha = 0.5f,
+                Color = new Color(100, 100, 100, 200),  // Gray smoke
+                Lifetime = 0,
+                MaxLifetime = (float)(rand.NextDouble() * 1.0f + 0.8f)
+            });
+        }
     }
 
     void CreateExplosionEffect(Vector2 position, List<Explosion> explosions, Random rand)
@@ -520,6 +747,110 @@ public class App
 
         void UpdateEffects()
         {
+            // Update confetti particles
+            for (int i = _confetti.Count - 1; i >= 0; i--)
+            {
+                var confetti = _confetti[i];
+                
+                // Update position
+                confetti.Position.X += confetti.Velocity.X * Raylib.GetFrameTime();
+                confetti.Position.Y += confetti.Velocity.Y * Raylib.GetFrameTime();
+                
+                // Apply gravity and air resistance
+                confetti.Velocity.Y += 9.8f * Raylib.GetFrameTime(); // Gravity
+                confetti.Velocity.X *= 0.99f; // Air resistance X
+                confetti.Velocity.Y *= 0.99f; // Air resistance Y
+                
+                // Update rotation
+                confetti.Angle += confetti.Velocity.X * 0.01f + (float)_random.NextDouble() * 0.02f; 
+                
+                // Add some horizontal wobble for realistic falling
+                confetti.Position.X += (float)(_random.NextDouble() - 0.5) * 0.5f;
+                
+                // Update lifetime
+                confetti.Lifetime += Raylib.GetFrameTime();
+                
+                // Calculate alpha - stay solid for a while, then fade out
+                float normalizedTime = confetti.Lifetime / confetti.MaxLifetime;
+                if (normalizedTime < 0.7f)
+                {
+                    confetti.Alpha = 1.0f;
+                }
+                else
+                {
+                    confetti.Alpha = 1.0f - ((normalizedTime - 0.7f) / 0.3f);
+                }
+                
+                // Remove expired confetti
+                if (confetti.Lifetime >= confetti.MaxLifetime)
+                {
+                    _confetti.RemoveAt(i);
+                }
+                else
+                {
+                    _confetti[i] = confetti;
+                }
+            }
+
+            for (int i = _fireEffects.Count - 1; i >= 0; i--)
+            {
+                var fire = _fireEffects[i];
+                
+                // Update lifetime
+                fire.Lifetime += Raylib.GetFrameTime();
+                
+                // Update all fire particles
+                for (int j = fire.Particles.Count - 1; j >= 0; j--)
+                {
+                    var particle = fire.Particles[j];
+                    
+                    // Update position
+                    particle.Position.X += particle.Velocity.X;
+                    particle.Position.Y += particle.Velocity.Y;
+                    
+                    // Add some flickering movement
+                    particle.Position.X += (float)((_random.NextDouble() - 0.5) * 0.8);
+                    
+                    // Make particles rise faster over time and get smaller
+                    particle.Velocity.Y -= 0.05f;
+                    particle.Radius *= 0.98f;
+                    
+                    // Update lifetime
+                    particle.Lifetime += Raylib.GetFrameTime();
+                    
+                    // Calculate alpha - start at full, then fade out
+                    float normalizedTime = particle.Lifetime / particle.MaxLifetime;
+                    if (normalizedTime < 0.3f)
+                    {
+                        particle.Alpha = normalizedTime / 0.3f;
+                    }
+                    else
+                    {
+                        particle.Alpha = 1.0f - ((normalizedTime - 0.3f) / 0.7f);
+                    }
+                    
+                    // Remove expired particles
+                    if (particle.Lifetime >= particle.MaxLifetime)
+                    {
+                        fire.Particles.RemoveAt(j);
+                    }
+                    else
+                    {
+                        fire.Particles[j] = particle;
+                    }
+                }
+                
+                // Remove fire effect if all particles are gone or lifetime exceeded
+                if (fire.Particles.Count == 0 || fire.Lifetime >= fire.MaxLifetime)
+                {
+                    _fireEffects.RemoveAt(i);
+                }
+                else
+                {
+                    _fireEffects[i] = fire;
+                }
+            }
+
             for (int i = _bolts.Count - 1; i >= 0; i--)
             {
                 var bolt = _bolts[i];
