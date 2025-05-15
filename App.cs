@@ -28,6 +28,9 @@ public class App
     private int _numBolts = 3;
     private CameraShake _cameraShake = new CameraShake();
     private Cursor _cursor;
+    private Vector2 _mousePosition;
+    private 
+    private Vector2 _mouseCursorPos;
 
     public App()
     {
@@ -42,7 +45,7 @@ public class App
             Zoom = 1.0f,
         };
 
-        _font = Raylib.LoadFontEx("FiraCodeNerdFont-Regular.ttf", FontSize, null, 0); 
+        _font = Raylib.LoadFontEx("FiraCodeNerdFont-Regular.ttf", FontSize, null, 0);
 
         _fontCharacterWidth = (int)Raylib.MeasureTextEx(_font, "W", FontSize, _fontSpacing).X;
 
@@ -68,8 +71,39 @@ public class App
         Cleanup();
     }
 
+    private void MousePosToCursorPos()
+    {
+        _mouseCursorPos = (_mousePosition - new Vector2(ScreenWidth/2, ScreenHeight/2) + _camera.Target) / new Vector2(_fontCharacterWidth, FontSize);
+        if (_mouseCursorPos.X < 0.0f)
+        {
+            _mouseCursorPos.X = 0.0f;
+        }
+
+        if (_mouseCursorPos.Y < 0.0f)
+        {
+            _mouseCursorPos.Y = 0.0f;
+        }
+    }
+
     private void HandleInput()
     {
+        _mousePosition = Raylib.GetMousePosition();
+        if (Raylib.IsMouseButtonDown(MouseButton.Left))
+        {
+            MousePosToCursorPos();
+            var x = (int)_mouseCursorPos.X;
+            var y = (int)_mouseCursorPos.Y;
+            if (lines.Count > y)
+            {
+                Console.WriteLine("lines[y].Length "+ lines[y].Length);
+                if (lines[y].Length > x)
+                {
+                    lines[y] = lines[y].Remove(x, 1).Insert(x, " ");
+                }
+            }
+        }
+        // lines[(int)_mouseCursorPos.Y].Remove((int)_mouseCursorPos.X, 1);
+
         for (var chr = Raylib.GetCharPressed(); chr > 0; chr = Raylib.GetCharPressed())
         {
             float shakeIntensity = 2.0f + (float)_random.NextDouble() * 2.0f;
@@ -179,9 +213,11 @@ public class App
             ImGui.Text($"Render Height: {Raylib.GetRenderHeight()}");
             ImGui.Text($"CurrentMonitorWidth: {Raylib.GetMonitorWidth(Raylib.GetCurrentMonitor())}");
             ImGui.Text($"CurrentMonitorHeight: {Raylib.GetMonitorHeight(Raylib.GetCurrentMonitor())}");
+            ImGui.Text($"Mouse Position {_mousePosition}");
             ImGui.Text($"Font Character Width: {_fontCharacterWidth}");
             ImGui.Text($"Cursor World Position: {_cursor.WorldCoordinates}");
             ImGui.Text($"Cursor Editor Position: {_cursor.EditorCoordinates}");
+            ImGui.Text($"Mouse Cursor Pos: {_mouseCursorPos}");
             ImGui.Text($"Camera Offset: {_camera.Offset}");
             ImGui.SliderFloat("Camera Zoom", ref _camera.Zoom, 0.1f, 100.0f);
             ImGui.Text($"Camera Target: {_camera.Target}");
