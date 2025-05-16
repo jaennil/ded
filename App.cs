@@ -74,7 +74,7 @@ public class App
         _mouseCursorPos = (_mousePosition - _center + _cursor.WorldCoordinates) / new Vector2(_fontCharacterWidth, FontSize);
     }
 
-    private void HandleInput()
+    private void HandleMouseInput()
     {
         _mousePosition = Raylib.GetMousePosition();
         if (Raylib.IsMouseButtonDown(MouseButton.Left))
@@ -97,6 +97,11 @@ public class App
                 }
             }
         }
+    }
+
+    private void HandleInput()
+    {
+        HandleMouseInput();
 
         for (var chr = Raylib.GetCharPressed(); chr > 0; chr = Raylib.GetCharPressed())
         {
@@ -148,17 +153,8 @@ public class App
         _camera.Target = _cursor.WorldCoordinates;
     }
 
-    private void Draw()
+    private void DrawConfetti()
     {
-        Raylib.BeginDrawing();
-        Raylib.ClearBackground(_backgroundColor);
-        Raylib.BeginMode2D(_camera.Handle);
-        if (_grid) DrawGrid();
-        if (_coordinateAxis) DrawCoordinateAxis();
-        DrawText();
-        _cursor.Draw();
-
-        // Draw confetti
         foreach (var confetti in _confetti)
         {
             Color colorWithAlpha = ColorAlpha(confetti.Color, confetti.Alpha);
@@ -221,7 +217,10 @@ public class App
                     break;
             }
         }
+    }
 
+    private void DrawFireEffects()
+    {
         foreach (var fire in _fireEffects)
         {
             foreach (var particle in fire.Particles)
@@ -229,7 +228,10 @@ public class App
                 Raylib.DrawCircleV(particle.Position, particle.Radius, ColorAlpha(particle.Color, particle.Alpha));
             }
         }
+    }
 
+    private void DrawExplosions()
+    {
         foreach (var explosion in _explosions)
         {
             // Draw outer explosion
@@ -248,6 +250,10 @@ public class App
                                  ColorAlpha(debris.Color, debris.Alpha));
             }
         }
+    }
+
+    void DrawLightnings()
+    {
         foreach (var lightning in _bolts)
         {
             for (int i = 0; i < lightning.Segments.Count - 1; i++)
@@ -260,6 +266,22 @@ public class App
                 );
             }
         }
+    }
+
+    private void Draw()
+    {
+        Raylib.BeginDrawing();
+        Raylib.ClearBackground(_backgroundColor);
+        Raylib.BeginMode2D(_camera.Handle);
+        if (_grid) DrawGrid();
+        if (_coordinateAxis) DrawCoordinateAxis();
+        DrawText();
+        _cursor.Draw();
+        DrawConfetti();
+        DrawFireEffects();
+        DrawExplosions();
+        DrawLightnings();
+
         Raylib.EndMode2D();
         if (_debug) DrawDebug();
         Raylib.EndDrawing();
